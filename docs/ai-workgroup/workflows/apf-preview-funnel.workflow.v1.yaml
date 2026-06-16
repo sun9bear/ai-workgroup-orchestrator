@@ -1,0 +1,203 @@
+schema_version: aiwg.workflow.v1
+workflow_id: apf-preview-funnel
+workflow_name: AIVideoTrans Anonymous Preview Funnel
+summary: >-
+  D4.4 versioned workflow contract for the AIVideoTrans APF pilot. This contract
+  declares checkpoints, gates, capabilities, budgets, retries, worktree policy,
+  and human-gate boundaries only. It remains read-only / dry-run-only and does
+  not dispatch real agents or mutate protected repositories.
+topology_ref: ../topology/aiwg.topology.v1.yaml
+topology_schema_version: aiwg.topology.v1
+read_only: true
+mutation_actions: []
+
+github_write_api_called: false
+git_push_performed: false
+git_merge_performed: false
+pr_comment_performed: false
+pr_mutation_performed: false
+created_fix_tasks: false
+target_writes_performed: false
+ready_for_real_agent_execution: false
+ready_for_protected_business_repository_write: false
+mcp_mutation_tools_exposed: false
+codex_automation_modified: false
+
+checkpoints:
+  - id: intake
+    title: Intake and scope gate
+    role_id: tech_lead
+    depends_on: []
+    gates:
+      - id: scope_envelope
+        source: docs/ai-workgroup/shared/phase-envelope.current.json
+        allowed_states: [authorized_scope]
+        read_only: true
+      - id: safe_switches
+        source: aiwg.yaml
+        allowed_states: [safe_mode]
+        read_only: true
+
+  - id: implement
+    title: Implementation preflight
+    role_id: implementer
+    depends_on: [intake]
+    gates:
+      - id: write_gate
+        source: write_gate_dry_run
+        allowed_states: [allow_dry_run_only]
+        read_only: true
+      - id: worktree_required
+        source: worktree_policy
+        allowed_states: [required]
+        read_only: true
+
+  - id: review
+    title: Independent review gate
+    role_id: reviewer
+    depends_on: [implement]
+    gates:
+      - id: no_self_review
+        source: topology.capability_matrix
+        allowed_states: [enforced]
+        read_only: true
+      - id: reviewer_verdict
+        source: reviewer_report
+        allowed_states: [passed]
+        read_only: true
+
+  - id: external_review
+    title: External review gate
+    role_id: external_gate
+    depends_on: [review]
+    gates:
+      - id: external_review_gate
+        source: aiwg.external_review_gate
+        allowed_states: [approved, no_pr]
+        read_only: true
+      - id: ci_gate
+        source: ci
+        allowed_states: [passed, not_required]
+        read_only: true
+
+  - id: git_record
+    title: Git Steward dry-run record
+    role_id: git_steward
+    depends_on: [external_review]
+    gates:
+      - id: git_steward_dry_run
+        source: aiwg.git_steward
+        allowed_states: [pr_not_created_dry_run, ready_for_merge_proposal]
+        read_only: true
+      - id: protected_write_gate
+        source: human_gate_policy
+        allowed_states: [human_required]
+        read_only: true
+
+capability_matrix:
+  tech_lead:
+    can_read_ledgers: true
+    can_dispatch: true
+    can_implement: false
+    can_review: false
+    can_self_review: false
+    can_git_record: false
+    can_call_external_api: false
+    can_push: false
+    can_merge: false
+    can_deploy: false
+    can_write_protected_repo: false
+    can_start_real_agents: false
+    can_expose_mcp_mutation_tools: false
+    can_modify_codex_automations: false
+  implementer:
+    can_read_ledgers: true
+    can_dispatch: false
+    can_implement: true
+    can_review: false
+    can_self_review: false
+    can_git_record: false
+    can_call_external_api: false
+    can_push: false
+    can_merge: false
+    can_deploy: false
+    can_write_protected_repo: false
+    can_start_real_agents: false
+    can_expose_mcp_mutation_tools: false
+    can_modify_codex_automations: false
+  reviewer:
+    can_read_ledgers: true
+    can_dispatch: false
+    can_implement: false
+    can_review: true
+    can_self_review: false
+    can_git_record: false
+    can_call_external_api: false
+    can_push: false
+    can_merge: false
+    can_deploy: false
+    can_write_protected_repo: false
+    can_start_real_agents: false
+    can_expose_mcp_mutation_tools: false
+    can_modify_codex_automations: false
+  git_steward:
+    can_read_ledgers: true
+    can_dispatch: false
+    can_implement: false
+    can_review: false
+    can_self_review: false
+    can_git_record: true
+    can_call_external_api: false
+    can_push: false
+    can_merge: false
+    can_deploy: false
+    can_write_protected_repo: false
+    can_start_real_agents: false
+    can_expose_mcp_mutation_tools: false
+    can_modify_codex_automations: false
+  external_gate:
+    can_read_ledgers: true
+    can_dispatch: false
+    can_implement: false
+    can_review: false
+    can_self_review: false
+    can_git_record: false
+    can_call_external_api: false
+    can_push: false
+    can_merge: false
+    can_deploy: false
+    can_write_protected_repo: false
+    can_start_real_agents: false
+    can_expose_mcp_mutation_tools: false
+    can_modify_codex_automations: false
+
+budget_policy:
+  max_workflow_minutes: 120
+  max_step_minutes: 30
+  max_daily_adapter_minutes: 0
+  kill_switch_required: true
+  kill_switch_path: docs/ai-workgroup/state/PAUSE_AUTOMATION
+
+timeout_policy:
+  checkpoint_lease_minutes: 30
+  heartbeat_stale_minutes: 20
+  stale_recovery: mark_stale_claim_require_human
+
+retry_policy:
+  max_attempts: 2
+  retry_write_tasks: false
+  retry_requires_revalidation: true
+  retry_exhausted_status: waiting_human
+
+worktree_policy:
+  write_tasks_must_use_worktree: true
+  main_worktree_writes_allowed: false
+  cleanup_requires_human_or_green_gate: true
+  protected_repo_pollution_check: required
+
+human_gate_policy:
+  protected_business_repository_write_requires_human: true
+  real_agent_execution_requires_human: true
+  github_write_api_requires_human: true
+  pr_mutation_requires_human: true
+  codex_automation_modification_requires_human: true

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Local AI assistant scratch / generated state
+.codex_tmp/
+.codegraph/
+.codex_worktrees/
+.hermes_*/
+.hermes*.yaml
+.hermes_tmp_*.py
+logs/
+*.log
+
+# AIWG runtime state and private work queues
+docs/ai-workgroup/state/
+docs/ai-workgroup/inbox/
+docs/ai-workgroup/working/
+docs/ai-workgroup/done/
+docs/ai-workgroup/quarantine/
+docs/ai-workgroup/spikes/
+tests/tmp/
+
+# Runtime databases and local browser/tooling state
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Local editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

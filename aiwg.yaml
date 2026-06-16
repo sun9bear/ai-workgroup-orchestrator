@@ -1,0 +1,63 @@
+project_root: .
+workgroup_root: docs/ai-workgroup
+state_db: docs/ai-workgroup/state/tasks.sqlite
+artifact_root: docs/ai-workgroup/state/artifacts
+logs_root: docs/ai-workgroup/state/logs
+protected_target_roots:
+- D:/example/protected-business-repo
+shell:
+  windows: powershell
+  timeout_seconds_default: 180
+agents:
+  Fake:
+    adapter: fake
+    enabled: true
+    can_write: false
+  OpenCode:
+    adapter: opencode
+    enabled: false
+    can_write: false
+  Claude-Code:
+    adapter: claude_code
+    enabled: false
+    can_write: true
+  Codex:
+    adapter: codex_cli
+    enabled: false
+    can_write: false
+  Hermes:
+    adapter: hermes_bridge
+    enabled: false
+    can_write: false
+policy:
+  global_pause: false
+  global_kill_switch: docs/ai-workgroup/state/PAUSE_AUTOMATION
+  safe_mode: true
+  allow_real_agents: false
+  allow_external_agents: false
+  allow_real_adapter_dispatch: false
+  allow_real_process_execution: false
+  allow_write: false
+  allow_push: false
+  allow_merge: false
+  allow_deploy: false
+  allow_destructive_commands: false
+  allow_network_write: false
+  allow_secret_access: false
+  allow_modify_codex_automations: false
+  default_timeout_minutes: 30
+  default_max_attempts: 2
+git:
+  enabled: false
+  default_base_branch: main
+  allow_auto_commit: false
+  allow_auto_push: false
+  allow_auto_pr: false
+  allow_auto_merge: false
+legacy_migration:
+  mode: audit_only
+  write_report: true
+  report_path: docs/ai-workgroup/state/legacy-migration-report.md
+  import_terminal: false
+  import_ready: false
+  require_human_selection: true

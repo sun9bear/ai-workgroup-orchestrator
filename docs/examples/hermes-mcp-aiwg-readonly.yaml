@@ -1,0 +1,31 @@
+# Hermes Agent MCP client example for AI Workgroup Orchestrator v2.
+#
+# Copy the `mcp_servers` block into ~/.hermes/config.yaml, then restart
+# Hermes or use /reload-mcp if available in the current session.
+#
+# This server is read-only. Expected Hermes tool names after discovery:
+# - mcp_aiwg_readonly_status
+# - mcp_aiwg_readonly_list_tasks
+# - mcp_aiwg_readonly_get_task
+# - mcp_aiwg_readonly_recent_events
+#
+# Safety notes:
+# - read-only access to the Orchestrator SQLite status surface
+# - no secrets, tokens, API keys, credentials, or connection strings here
+# - no AIVideoTrans business repository writes
+# - no real agent start or process execution
+# - no push, merge, deploy, or CodeX Automations modification
+
+mcp_servers:
+  aiwg_readonly:
+    command: "python"
+    args:
+      - "-m"
+      - "aiwg.mcp.server"
+      - "--config"
+      - "D:/AIGroup/ai-workgroup-orchestrator/aiwg.yaml"
+    cwd: "D:/AIGroup/ai-workgroup-orchestrator"
+    timeout: 120
+    connect_timeout: 60
+    sampling:
+      enabled: false

@@ -1,0 +1,151 @@
+schema_version: aiwg.topology.v1
+topology_id: aiwg-default-dry-run-control-plane
+read_only: true
+mutation_actions: []
+summary: >-
+  D4.4 versioned topology contract for the AI Workgroup Orchestrator control plane.
+  It defines roles, queues, and capability boundaries only; it does not authorize
+  real agent execution, protected repository writes, GitHub write APIs, PR
+  mutation, MCP mutation tools, or CodeX Automation changes.
+
+roles:
+  - id: tech_lead
+    display_name: Tech Lead / Planner
+    queues:
+      inbox: docs/ai-workgroup/inbox/CodeX
+      outbox: docs/ai-workgroup/done/CodeX
+      ledger_scope: workflow_planning
+    capabilities:
+      can_dispatch: true
+      can_implement: false
+      can_review: false
+      can_self_review: false
+      can_git_record: false
+      can_call_external_api: false
+      can_push: false
+      can_merge: false
+      can_deploy: false
+      can_modify_codex_automations: false
+      can_start_real_agents: false
+      can_write_protected_repo: false
+      can_expose_mcp_mutation_tools: false
+
+  - id: implementer
+    display_name: Implementer
+    queues:
+      inbox: docs/ai-workgroup/inbox/Claude-Code
+      outbox: docs/ai-workgroup/done/Claude-Code
+      ledger_scope: implementation_dry_run
+    capabilities:
+      can_dispatch: false
+      can_implement: true
+      can_review: false
+      can_self_review: false
+      can_git_record: false
+      can_call_external_api: false
+      can_push: false
+      can_merge: false
+      can_deploy: false
+      can_modify_codex_automations: false
+      can_start_real_agents: false
+      can_write_protected_repo: false
+      can_expose_mcp_mutation_tools: false
+
+  - id: reviewer
+    display_name: Reviewer
+    queues:
+      inbox: docs/ai-workgroup/inbox/Reviewer
+      outbox: docs/ai-workgroup/done/Reviewer
+      ledger_scope: review_gate
+    capabilities:
+      can_dispatch: false
+      can_implement: false
+      can_review: true
+      can_self_review: false
+      can_git_record: false
+      can_call_external_api: false
+      can_push: false
+      can_merge: false
+      can_deploy: false
+      can_modify_codex_automations: false
+      can_start_real_agents: false
+      can_write_protected_repo: false
+      can_expose_mcp_mutation_tools: false
+
+  - id: git_steward
+    display_name: Git Steward
+    queues:
+      inbox: docs/ai-workgroup/inbox/Git-Steward
+      outbox: docs/ai-workgroup/done/Git-Steward
+      ledger_scope: git_dry_run
+    capabilities:
+      can_dispatch: false
+      can_implement: false
+      can_review: false
+      can_self_review: false
+      can_git_record: true
+      can_call_external_api: false
+      can_push: false
+      can_merge: false
+      can_deploy: false
+      can_modify_codex_automations: false
+      can_start_real_agents: false
+      can_write_protected_repo: false
+      can_expose_mcp_mutation_tools: false
+
+  - id: external_gate
+    display_name: External Review Gate
+    queues:
+      inbox: docs/ai-workgroup/inbox/External-Gate
+      outbox: docs/ai-workgroup/done/External-Gate
+      ledger_scope: external_review_gate
+    capabilities:
+      can_dispatch: false
+      can_implement: false
+      can_review: false
+      can_self_review: false
+      can_git_record: false
+      can_call_external_api: false
+      can_push: false
+      can_merge: false
+      can_deploy: false
+      can_modify_codex_automations: false
+      can_start_real_agents: false
+      can_write_protected_repo: false
+      can_expose_mcp_mutation_tools: false
+
+queues:
+  - id: tech_lead_inbox
+    role_id: tech_lead
+    path: docs/ai-workgroup/inbox/CodeX
+    ledger_scope: workflow_planning
+    read_only: true
+  - id: implementer_inbox
+    role_id: implementer
+    path: docs/ai-workgroup/inbox/Claude-Code
+    ledger_scope: implementation_dry_run
+    read_only: true
+  - id: reviewer_inbox
+    role_id: reviewer
+    path: docs/ai-workgroup/inbox/Reviewer
+    ledger_scope: review_gate
+    read_only: true
+  - id: git_steward_inbox
+    role_id: git_steward
+    path: docs/ai-workgroup/inbox/Git-Steward
+    ledger_scope: git_dry_run
+    read_only: true
+  - id: external_gate_inbox
+    role_id: external_gate
+    path: docs/ai-workgroup/inbox/External-Gate
+    ledger_scope: external_review_gate
+    read_only: true
+
+safety:
+  allow_real_agents: false
+  allow_write: false
+  allow_push: false
+  allow_merge: false
+  allow_deploy: false
+  allow_modify_codex_automations: false
+  mcp_mutation_tools_exposed: false

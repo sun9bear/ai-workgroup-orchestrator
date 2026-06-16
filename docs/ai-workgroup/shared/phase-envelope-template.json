@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "phase": "APF2c",
+  "title": "Short phase title",
+  "status": "approved",
+  "approved_by": "Human",
+  "approved_at": "2026-06-02T00:00:00+08:00",
+  "source_plan_files": [
+    "docs/plans/example-plan.md"
+  ],
+  "delegated_to": "CodeX Tech Lead",
+  "implementation_agent": "Claude-Code",
+  "default_language": "zh-CN",
+  "approved_scope": [
+    "One coherent stage of work that CodeX can dispatch without asking Human again"
+  ],
+  "allowed_files": [
+    "src/services/example_*.py",
+    "tests/test_example_*.py",
+    "docs/plans/example-*.md",
+    "docs/ai-workgroup/inbox/CodeX/*.md",
+    "docs/ai-workgroup/inbox/Claude-Code/*.md",
+    "docs/ai-workgroup/inbox/Human/*.md"
+  ],
+  "forbidden_files": [
+    ".env",
+    "migrations/**",
+    "docs/ai-workgroup/state/**"
+  ],
+  "human_required_if": [
+    "touches pricing/payment/points",
+    "adds or changes production secrets or deployment config",
+    "creates or runs DB migration",
+    "exposes public API/Gateway/endpoint",
+    "calls real external provider",
+    "changes legal/privacy retention boundary"
+  ],
+  "autonomy_policy": {
+    "codex_planner_can_create_tasks_inside_envelope": true,
+    "codex_reviewer_can_request_claude_fix_inside_envelope": true,
+    "human_gate_only_on_trigger": true,
+    "preferred_task_size": "stage package, 1-2 hours, not one helper per task"
+  },
+  "required_validation": [
+    "pytest -q tests/test_example.py -p no:cacheprovider"
+  ],
+  "notes": [
+    "Keep reports in Simplified Chinese by default.",
+    "Keep code symbols, file paths, commands, status values, API names, and exact identifiers in English."
+  ]
+}
