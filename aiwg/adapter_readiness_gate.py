@@ -153,6 +153,25 @@ def evaluate_adapter_readiness_gate(
             report_path=report_path,
         )
 
+    try:
+        current_report = resolve_adapter_binary_readiness(
+            config=config,
+            project_root=project_root,
+            run_version_probes=False,
+        )
+    except AdapterBinaryReadinessConfigError as exc:
+        errors = list(exc.errors) or [str(exc)]
+        return _blocked(
+            "config_contract_invalid",
+            {
+                **payload_with_report,
+                "reason": "config_contract_invalid",
+                "error": "config_contract_invalid",
+                "errors": errors,
+            },
+            report_path=report_path,
+        )
+
     adapters = report.get("adapters") if isinstance(report.get("adapters"), dict) else {}
     adapter_doc = adapters.get(manifest_adapter_type)
     if not isinstance(adapter_doc, dict):
@@ -178,24 +197,6 @@ def evaluate_adapter_readiness_gate(
             report_path=report_path,
         )
 
-    try:
-        current_report = resolve_adapter_binary_readiness(
-            config=config,
-            project_root=project_root,
-            run_version_probes=False,
-        )
-    except AdapterBinaryReadinessConfigError as exc:
-        errors = list(exc.errors) or [str(exc)]
-        return _blocked(
-            "config_contract_invalid",
-            {
-                **payload_with_report,
-                "reason": "config_contract_invalid",
-                "error": "config_contract_invalid",
-                "errors": errors,
-            },
-            report_path=report_path,
-        )
     current_adapter = (current_report.get("adapters") or {}).get(manifest_adapter_type) or {}
     reported_path = _normalized_path(adapter_doc.get("resolved_path"))
     current_path = _normalized_path(current_adapter.get("resolved_path"))
