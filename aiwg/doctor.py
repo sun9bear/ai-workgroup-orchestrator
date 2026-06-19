@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from aiwg.adapter_binary_readiness import resolve_adapter_binary_readiness
-from aiwg.config import load_config, validate_config_contract
+from aiwg.config import load_config, validate_adapter_binary_readiness_bool_schema, validate_config_contract
 
 
 @dataclass(frozen=True)
@@ -75,33 +75,35 @@ def run_doctor(config_path: Path | str, project_root: Path | str | None = None) 
     else:
         errors.append("allow_write must remain false for Phase A0.")
 
-    readiness = config.get("adapter_binary_readiness") or {}
-    if not isinstance(readiness, dict):
-        readiness = {}
-    if _as_bool(readiness.get("auto_install")) is False:
-        messages.append("adapter_binary_readiness.auto_install=false")
-    else:
-        errors.append("adapter_binary_readiness.auto_install must remain false")
-    if _as_bool(readiness.get("auto_login")) is False:
-        messages.append("adapter_binary_readiness.auto_login=false")
-    else:
-        errors.append("adapter_binary_readiness.auto_login must remain false")
-    if _as_bool(readiness.get("read_tokens")) is False:
-        messages.append("adapter_binary_readiness.read_tokens=false")
-    else:
-        errors.append("adapter_binary_readiness.read_tokens must remain false")
-    readiness_report = resolve_adapter_binary_readiness(
-        config=config,
-        project_root=root,
-        run_version_probes=False,
-    )
-    readiness_summary = readiness_report.get("summary") or {}
-    messages.append(
-        "adapter_binary_readiness: "
-        f"available={readiness_summary.get('available', 0)} "
-        f"missing={readiness_summary.get('missing', 0)} "
-        "version_probe=disabled_for_doctor"
-    )
+    readiness_schema = validate_adapter_binary_readiness_bool_schema(config)
+    for schema_error in readiness_schema.errors:
+        if schema_error not in errors:
+            errors.append(schema_error)
+    if readiness_schema.ok:
+        if readiness_schema.values["auto_install"] is False:
+            messages.append("adapter_binary_readiness.auto_install=false")
+        else:
+            errors.append("adapter_binary_readiness.auto_install must remain false")
+        if readiness_schema.values["auto_login"] is False:
+            messages.append("adapter_binary_readiness.auto_login=false")
+        else:
+            errors.append("adapter_binary_readiness.auto_login must remain false")
+        if readiness_schema.values["read_tokens"] is False:
+            messages.append("adapter_binary_readiness.read_tokens=false")
+        else:
+            errors.append("adapter_binary_readiness.read_tokens must remain false")
+        readiness_report = resolve_adapter_binary_readiness(
+            config=config,
+            project_root=root,
+            run_version_probes=False,
+        )
+        readiness_summary = readiness_report.get("summary") or {}
+        messages.append(
+            "adapter_binary_readiness: "
+            f"available={readiness_summary.get('available', 0)} "
+            f"missing={readiness_summary.get('missing', 0)} "
+            "version_probe=disabled_for_doctor"
+        )
 
     for key in ("allow_push", "allow_merge", "allow_deploy", "allow_modify_codex_automations"):
         if _as_bool(policy.get(key)) is False:

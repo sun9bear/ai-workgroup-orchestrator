@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,54 @@ class RunOnceResult:
     policy_reasons: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RunnerPolicyBoolContract:
+    ok: bool
+    values: dict[str, bool]
+    errors: list[str] = field(default_factory=list)
+
+
+RUNNER_OPTIONAL_POLICY_BOOL_DEFAULTS: dict[str, bool] = {
+    "stale_claim_requires_human": True,
+    "auto_retry_needs_revision": True,
+    "auto_retry_write_tasks": False,
+}
+
+
+def _runner_policy_bool_contract(config: dict[str, Any]) -> RunnerPolicyBoolContract:
+    policy = config.get("policy")
+    values = dict(RUNNER_OPTIONAL_POLICY_BOOL_DEFAULTS)
+    if not isinstance(policy, Mapping):
+        return RunnerPolicyBoolContract(
+            ok=False,
+            values=values,
+            errors=["policy schema invalid: policy must be a mapping"],
+        )
+
+    errors: list[str] = []
+    for key in RUNNER_OPTIONAL_POLICY_BOOL_DEFAULTS:
+        if key not in policy:
+            continue
+        value = policy[key]
+        if type(value) is not bool:
+            errors.append(f"policy.{key} must be literal bool; got {type(value).__name__}")
+            continue
+        values[key] = value
+    return RunnerPolicyBoolContract(ok=not errors, values=values, errors=errors)
+
+
+def _runner_policy_denied_result(*, agent: str, errors: list[str]) -> RunOnceResult:
+    return RunOnceResult(
+        agent=agent,
+        status="policy_denied",
+        message_id=None,
+        import_result=ImportResult(),
+        stale_result=StaleClaimResult(),
+        error="config_contract_invalid",
+        policy_reasons=[f"config_contract_invalid: {error}" for error in errors],
+    )
+
+
 def run_once(config: dict[str, Any], project_root: Path | str, *, agent: str) -> RunOnceResult:
     """Run one Phase A3 orchestrator tick for a single agent.
 
@@ -54,10 +103,14 @@ def run_once(config: dict[str, Any], project_root: Path | str, *, agent: str) ->
     """
 
     project_root_path = Path(project_root)
+    runner_policy = _runner_policy_bool_contract(config)
+    if not runner_policy.ok:
+        return _runner_policy_denied_result(agent=agent, errors=runner_policy.errors)
+
     init_database(config=config, project_root=project_root_path)
     import_result = import_inbox(config=config, project_root=project_root_path, agent=agent)
     stale_result = release_stale_claims(config=config, project_root=project_root_path, agent=agent)
-    if _policy_bool(config, "stale_claim_requires_human", default=True):
+    if runner_policy.values["stale_claim_requires_human"]:
         stale_message_id = _record_unresolved_stale_recovery_required(
             config=config,
             project_root=project_root_path,
@@ -101,7 +154,12 @@ def run_once(config: dict[str, Any], project_root: Path | str, *, agent: str) ->
             policy_reasons=agent_policy.reasons,
         )
 
-    retry_preparation = _prepare_retry_candidate(config=config, project_root=project_root_path, agent=agent)
+    retry_preparation = _prepare_retry_candidate(
+        config=config,
+        project_root=project_root_path,
+        agent=agent,
+        runner_policy_values=runner_policy.values,
+    )
     if retry_preparation.status in {"waiting_human", "retry_blocked"}:
         return RunOnceResult(
             agent=agent,
@@ -306,13 +364,6 @@ FROM tasks
 """
 
 
-def _policy_bool(config: dict[str, Any], key: str, *, default: bool) -> bool:
-    policy = config.get("policy") or {}
-    if key not in policy:
-        return default
-    return bool(policy.get(key))
-
-
 def _record_unresolved_stale_recovery_required(
     *,
     config: dict[str, Any],
@@ -368,6 +419,7 @@ def _prepare_retry_candidate(
     config: dict[str, Any],
     project_root: Path,
     agent: str,
+    runner_policy_values: Mapping[str, bool],
 ) -> RetryPreparationResult:
     db_path = resolve_db_path(config, project_root)
     with connect_database(db_path) as conn:
@@ -390,7 +442,7 @@ def _prepare_retry_candidate(
         attempt = int(task["attempt"])
         max_attempts = int(task["max_attempts"])
 
-        if not _policy_bool(config, "auto_retry_needs_revision", default=True):
+        if not runner_policy_values["auto_retry_needs_revision"]:
             return _move_retry_task_to_waiting_human(
                 conn,
                 task=task,
@@ -410,7 +462,7 @@ def _prepare_retry_candidate(
                 error="requires_human",
                 payload={"reason": "requires_human", "attempt": attempt, "max_attempts": max_attempts},
             )
-        if bool(task.get("can_write")) and not _policy_bool(config, "auto_retry_write_tasks", default=False):
+        if bool(task.get("can_write")) and not runner_policy_values["auto_retry_write_tasks"]:
             return _move_retry_task_to_waiting_human(
                 conn,
                 task=task,

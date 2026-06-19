@@ -9,10 +9,19 @@ from pathlib import Path
 from typing import Any
 
 from aiwg.adapter_registry import list_adapter_specs
+from aiwg.config import validate_adapter_binary_readiness_bool_schema
 from aiwg.evidence_paths import assert_orchestrator_artifact_root, protected_target_roots_from_config
 from aiwg.state.database import connect_database, resolve_config_path, utc_now_iso
 
 DEFAULT_VERSION_PROBE_TIMEOUT_SECONDS = 3
+
+
+class AdapterBinaryReadinessConfigError(ValueError):
+    """Malformed adapter_binary_readiness config blocked before readiness side effects."""
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = errors
+        super().__init__(errors[0] if errors else "config_contract_invalid")
 
 
 def resolve_adapter_binary_readiness(
@@ -30,9 +39,13 @@ def resolve_adapter_binary_readiness(
     """
 
     project_root_path = Path(project_root)
+    schema = validate_adapter_binary_readiness_bool_schema(config)
+    if not schema.ok:
+        raise AdapterBinaryReadinessConfigError(schema.errors)
+
     readiness = _readiness_config(config)
     adapter_overrides = readiness.get("adapters") if isinstance(readiness.get("adapters"), dict) else {}
-    global_probe_enabled = bool(readiness.get("version_probe_enabled", False))
+    global_probe_enabled = schema.values["version_probe_enabled"]
     timeout_seconds = _timeout_seconds(readiness.get("version_probe_timeout_seconds"))
     secret_values = _secret_values(config)
     adapter_docs: dict[str, dict[str, Any]] = {}
@@ -45,7 +58,10 @@ def resolve_adapter_binary_readiness(
         configured_path = override.get("path")
         resolved_path = _resolve_binary_path(configured_path=configured_path, binary_name=binary_name)
         available = resolved_path is not None
-        per_adapter_probe_enabled = bool(override.get("version_probe_enabled", global_probe_enabled))
+        per_adapter_probe_enabled = schema.values.get(
+            f"adapters.{adapter_type}.version_probe_enabled",
+            global_probe_enabled,
+        )
         should_probe = bool(run_version_probes and per_adapter_probe_enabled)
         version_args = _version_args(override)
         if available and should_probe:
@@ -119,9 +135,9 @@ def resolve_adapter_binary_readiness(
             "codex_automation_modification_allowed": False,
         },
         "policy": {
-            "configured_auto_install": bool(readiness.get("auto_install", False)),
-            "configured_auto_login": bool(readiness.get("auto_login", False)),
-            "configured_read_tokens": bool(readiness.get("read_tokens", False)),
+            "configured_auto_install": schema.values["auto_install"],
+            "configured_auto_login": schema.values["auto_login"],
+            "configured_read_tokens": schema.values["read_tokens"],
             "version_probe_enabled": global_probe_enabled,
             "version_probe_timeout_seconds": timeout_seconds,
         },
@@ -145,16 +161,61 @@ def write_adapter_binary_readiness_report(
     report_dir = artifact_root / "_adapter-readiness"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / "adapter-binary-readiness.json"
-    report = resolve_adapter_binary_readiness(
-        config=config,
-        project_root=project_root_path,
-        run_version_probes=run_version_probes,
-    )
+    try:
+        report = resolve_adapter_binary_readiness(
+            config=config,
+            project_root=project_root_path,
+            run_version_probes=run_version_probes,
+        )
+    except AdapterBinaryReadinessConfigError as exc:
+        report = _blocked_readiness_report(
+            project_root=project_root_path,
+            errors=exc.errors,
+        )
     report["report_path"] = str(report_path)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     if db_path is not None:
         _record_readiness_event(db_path=Path(db_path), report=report, report_path=report_path)
     return report
+
+
+def _blocked_readiness_report(*, project_root: Path, errors: list[str]) -> dict[str, Any]:
+    return {
+        "schema_version": "aiwg.adapter_binary_readiness.v1",
+        "phase": "B12-adapter-binary-preflight-resolver",
+        "mode": "read_only_binary_resolver",
+        "status": "blocked",
+        "error": "config_contract_invalid",
+        "errors": errors,
+        "generated_at": utc_now_iso(),
+        "project_root": str(project_root),
+        "summary": {
+            "total": 0,
+            "available": 0,
+            "missing": 0,
+            "ready": 0,
+            "unavailable": 0,
+        },
+        "safety": {
+            "auto_install": False,
+            "auto_login": False,
+            "read_tokens": False,
+            "values_recorded": False,
+            "started_version_probe_process": False,
+            "started_real_agent_task_process": False,
+            "started_adapter_process": False,
+            "desktop_automation_allowed": False,
+            "codex_automation_modification_allowed": False,
+        },
+        "policy": {
+            "configured_auto_install": False,
+            "configured_auto_login": False,
+            "configured_read_tokens": False,
+            "version_probe_enabled": False,
+            "version_probe_timeout_seconds": DEFAULT_VERSION_PROBE_TIMEOUT_SECONDS,
+        },
+        "adapters": {},
+    }
 
 
 def _record_readiness_event(*, db_path: Path, report: dict[str, Any], report_path: Path) -> None:
@@ -172,14 +233,18 @@ def _record_readiness_event(*, db_path: Path, report: dict[str, Any], report_pat
         "read_tokens": False,
         "desktop_automation_allowed": False,
         "codex_automation_modification_allowed": False,
+        "status": report.get("status", "checked"),
+        "error": report.get("error"),
+        "errors": report.get("errors", []),
     }
+    event_status = "blocked" if report.get("status") == "blocked" else "checked"
     with connect_database(db_path) as conn:
         conn.execute(
             """
             INSERT INTO events(task_id, message_id, agent, type, status, path, payload_json, created_at)
-            VALUES (NULL, NULL, 'Orchestrator', 'adapter_binary_readiness_checked', 'checked', ?, ?, ?)
+            VALUES (NULL, NULL, 'Orchestrator', 'adapter_binary_readiness_checked', ?, ?, ?, ?)
             """,
-            (str(report_path), json.dumps(payload, ensure_ascii=False, sort_keys=True), utc_now_iso()),
+            (event_status, str(report_path), json.dumps(payload, ensure_ascii=False, sort_keys=True), utc_now_iso()),
         )
 
 
