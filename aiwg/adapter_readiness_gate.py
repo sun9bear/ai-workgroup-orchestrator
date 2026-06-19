@@ -13,6 +13,7 @@ from aiwg.state.database import connect_database, utc_now_iso
 
 DEFAULT_REQUIRED_MODES = ["sandbox_plan", "sandbox_probe", "real"]
 DEFAULT_MAX_AGE_MINUTES = 60
+REPORT_SCHEMA_INVALID_REASON = "adapter_readiness_report_schema_invalid"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,40 @@ def _readiness_report_block(report: dict[str, Any]) -> dict[str, Any] | None:
         "errors": errors,
         "report_status": status,
     }
+
+
+def _normalize_report_adapter_doc(
+    *,
+    report: dict[str, Any],
+    adapter_type: str,
+) -> tuple[dict[str, Any] | None, str | None, list[str]]:
+    adapters = report.get("adapters")
+    if not isinstance(adapters, dict):
+        return None, REPORT_SCHEMA_INVALID_REASON, ["report.adapters must be a mapping"]
+
+    if adapter_type not in adapters:
+        return None, "adapter_readiness_adapter_missing", []
+
+    adapter_doc = adapters[adapter_type]
+    if not isinstance(adapter_doc, dict):
+        return None, REPORT_SCHEMA_INVALID_REASON, [f"report.adapters.{adapter_type} must be a mapping"]
+
+    if "available" not in adapter_doc:
+        return (
+            None,
+            REPORT_SCHEMA_INVALID_REASON,
+            [f"report.adapters.{adapter_type}.available is required and must be literal bool"],
+        )
+
+    available = adapter_doc.get("available")
+    if not isinstance(available, bool):
+        return (
+            None,
+            REPORT_SCHEMA_INVALID_REASON,
+            [f"report.adapters.{adapter_type}.available must be literal bool; got {type(available).__name__}"],
+        )
+
+    return adapter_doc, None, []
 
 
 def evaluate_adapter_readiness_gate(
@@ -173,6 +208,67 @@ def evaluate_adapter_readiness_gate(
             report_path=report_path,
         )
 
+    report_block = _readiness_report_block(report)
+    if report_block is not None:
+        return _blocked(
+            report_block["reason"],
+            {
+                **payload_with_report,
+                **report_block,
+            },
+            report_path=report_path,
+        )
+
+    adapter_doc, report_error, report_errors = _normalize_report_adapter_doc(
+        report=report,
+        adapter_type=manifest_adapter_type,
+    )
+    if report_error == REPORT_SCHEMA_INVALID_REASON:
+        return _blocked(
+            REPORT_SCHEMA_INVALID_REASON,
+            {
+                **payload_with_report,
+                "reason": REPORT_SCHEMA_INVALID_REASON,
+                "error": REPORT_SCHEMA_INVALID_REASON,
+                "errors": report_errors,
+            },
+            report_path=report_path,
+        )
+    if report_error == "adapter_readiness_adapter_missing":
+        return _blocked(
+            "adapter_readiness_adapter_missing",
+            {
+                **payload_with_report,
+                "reason": "adapter_readiness_adapter_missing",
+                "adapter_type": manifest_adapter_type,
+            },
+            report_path=report_path,
+        )
+    if adapter_doc is None:
+        return _blocked(
+            REPORT_SCHEMA_INVALID_REASON,
+            {
+                **payload_with_report,
+                "reason": REPORT_SCHEMA_INVALID_REASON,
+                "error": REPORT_SCHEMA_INVALID_REASON,
+                "errors": report_errors or ["report adapter document could not be normalized"],
+            },
+            report_path=report_path,
+        )
+
+    if adapter_doc["available"] is False:
+        return _blocked(
+            "adapter_binary_missing",
+            {
+                **payload_with_report,
+                "reason": "adapter_binary_missing",
+                "adapter_type": manifest_adapter_type,
+                "reported_readiness": adapter_doc.get("readiness"),
+                "reported_resolved_path": adapter_doc.get("resolved_path"),
+            },
+            report_path=report_path,
+        )
+
     try:
         current_report = resolve_adapter_binary_readiness(
             config=config,
@@ -188,42 +284,6 @@ def evaluate_adapter_readiness_gate(
                 "reason": "config_contract_invalid",
                 "error": "config_contract_invalid",
                 "errors": errors,
-            },
-            report_path=report_path,
-        )
-
-    report_block = _readiness_report_block(report)
-    if report_block is not None:
-        return _blocked(
-            report_block["reason"],
-            {
-                **payload_with_report,
-                **report_block,
-            },
-            report_path=report_path,
-        )
-
-    adapters = report.get("adapters") if isinstance(report.get("adapters"), dict) else {}
-    adapter_doc = adapters.get(manifest_adapter_type)
-    if not isinstance(adapter_doc, dict):
-        return _blocked(
-            "adapter_readiness_adapter_missing",
-            {
-                **payload_with_report,
-                "reason": "adapter_readiness_adapter_missing",
-                "adapter_type": manifest_adapter_type,
-            },
-            report_path=report_path,
-        )
-    if not bool(adapter_doc.get("available", False)):
-        return _blocked(
-            "adapter_binary_missing",
-            {
-                **payload_with_report,
-                "reason": "adapter_binary_missing",
-                "adapter_type": manifest_adapter_type,
-                "reported_readiness": adapter_doc.get("readiness"),
-                "reported_resolved_path": adapter_doc.get("resolved_path"),
             },
             report_path=report_path,
         )
