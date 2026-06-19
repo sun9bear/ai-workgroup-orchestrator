@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from aiwg.adapter_binary_readiness import resolve_adapter_binary_readiness
+from aiwg.adapter_binary_readiness import AdapterBinaryReadinessConfigError, resolve_adapter_binary_readiness
+from aiwg.config import validate_adapter_readiness_gate_bool_schema
 from aiwg.state.database import connect_database, utc_now_iso
 
 DEFAULT_REQUIRED_MODES = ["sandbox_plan", "sandbox_probe", "real"]
@@ -40,8 +41,25 @@ def evaluate_adapter_readiness_gate(
     mutate Desktop automation state, or start adapter task processes.
     """
 
+    gate_schema = validate_adapter_readiness_gate_bool_schema(config)
+    if not gate_schema.ok:
+        return _blocked(
+            "config_contract_invalid",
+            {
+                "phase": "B13-adapter-readiness-gate-binding",
+                "gate_enabled": None,
+                "execution_mode": execution_mode,
+                "agent": agent,
+                "adapter_type": adapter_type,
+                "manifest_adapter_type": str(manifest.get("adapter_type") or adapter_type or ""),
+                "reason": "config_contract_invalid",
+                "error": "config_contract_invalid",
+                "errors": gate_schema.errors,
+            },
+        )
+
     gate_config = _gate_config(config)
-    if not bool(gate_config.get("enabled", True)):
+    if gate_schema.values["enabled"] is False:
         return AdapterReadinessGateResult(
             allowed=True,
             payload={"gate_enabled": False, "execution_mode": execution_mode},
@@ -160,11 +178,24 @@ def evaluate_adapter_readiness_gate(
             report_path=report_path,
         )
 
-    current_report = resolve_adapter_binary_readiness(
-        config=config,
-        project_root=project_root,
-        run_version_probes=False,
-    )
+    try:
+        current_report = resolve_adapter_binary_readiness(
+            config=config,
+            project_root=project_root,
+            run_version_probes=False,
+        )
+    except AdapterBinaryReadinessConfigError as exc:
+        errors = list(exc.errors) or [str(exc)]
+        return _blocked(
+            "config_contract_invalid",
+            {
+                **payload_with_report,
+                "reason": "config_contract_invalid",
+                "error": "config_contract_invalid",
+                "errors": errors,
+            },
+            report_path=report_path,
+        )
     current_adapter = (current_report.get("adapters") or {}).get(manifest_adapter_type) or {}
     reported_path = _normalized_path(adapter_doc.get("resolved_path"))
     current_path = _normalized_path(current_adapter.get("resolved_path"))

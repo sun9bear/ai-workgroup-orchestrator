@@ -25,6 +25,17 @@ POLICY_FORBIDDEN_FALSE_KEYS = (
     "allow_destructive_commands",
 )
 
+ADAPTER_BINARY_READINESS_BOOL_DEFAULTS = {
+    "auto_install": False,
+    "auto_login": False,
+    "read_tokens": False,
+    "version_probe_enabled": False,
+}
+
+ADAPTER_READINESS_GATE_BOOL_DEFAULTS = {
+    "enabled": True,
+}
+
 
 @dataclass(frozen=True)
 class ConfigValidationResult:
@@ -200,6 +211,16 @@ def validate_config_contract(config: Config) -> ConfigValidationResult:
     warnings.extend(policy_result.warnings)
     errors.extend(policy_result.errors)
 
+    readiness_schema = validate_adapter_binary_readiness_bool_schema(config)
+    errors.extend(readiness_schema.errors)
+    if readiness_schema.ok:
+        messages.append("adapter_binary_readiness bool schema ok")
+
+    gate_schema = validate_adapter_readiness_gate_bool_schema(config)
+    errors.extend(gate_schema.errors)
+    if gate_schema.ok:
+        messages.append("adapter_readiness_gate bool schema ok")
+
     return ConfigValidationResult(ok=not errors, messages=messages, warnings=warnings, errors=errors)
 
 
@@ -243,6 +264,92 @@ def validate_policy_bool_schema(config: Config, *, required_keys: Iterable[str])
         value = policy[key]
         if type(value) is not bool:
             errors.append(f"{path} must be literal bool; got {type(value).__name__}")
+            continue
+        values[key] = value
+
+    return PolicyBoolSchemaResult(ok=not errors, values=values, errors=errors)
+
+
+def validate_adapter_binary_readiness_bool_schema(config: Config) -> PolicyBoolSchemaResult:
+    """Validate adapter-binary-readiness bool consumers without truthiness coercion."""
+
+    errors: list[str] = []
+    values: dict[str, bool] = dict(ADAPTER_BINARY_READINESS_BOOL_DEFAULTS)
+
+    if "adapter_binary_readiness" not in config:
+        return PolicyBoolSchemaResult(ok=True, values=values, errors=[])
+
+    readiness = config["adapter_binary_readiness"]
+    if not isinstance(readiness, dict):
+        return PolicyBoolSchemaResult(
+            ok=False,
+            values=values,
+            errors=["config_contract_invalid: adapter_binary_readiness must be a mapping"],
+        )
+
+    for key in ADAPTER_BINARY_READINESS_BOOL_DEFAULTS:
+        if key not in readiness:
+            continue
+        value = readiness[key]
+        if type(value) is not bool:
+            errors.append(
+                f"config_contract_invalid: adapter_binary_readiness.{key} must be literal bool; "
+                f"got {type(value).__name__}"
+            )
+            continue
+        values[key] = value
+
+    raw_adapters = readiness.get("adapters", {})
+    if raw_adapters is None:
+        raw_adapters = {}
+    if not isinstance(raw_adapters, dict):
+        errors.append("config_contract_invalid: adapter_binary_readiness.adapters must be a mapping")
+    else:
+        for adapter_name, override in raw_adapters.items():
+            path = f"adapter_binary_readiness.adapters.{adapter_name}"
+            if not isinstance(override, dict):
+                errors.append(f"config_contract_invalid: {path} must be a mapping")
+                continue
+            if "version_probe_enabled" not in override:
+                continue
+            value = override["version_probe_enabled"]
+            if type(value) is not bool:
+                errors.append(
+                    f"config_contract_invalid: {path}.version_probe_enabled must be literal bool; "
+                    f"got {type(value).__name__}"
+                )
+                continue
+            values[f"adapters.{adapter_name}.version_probe_enabled"] = value
+
+    return PolicyBoolSchemaResult(ok=not errors, values=values, errors=errors)
+
+
+def validate_adapter_readiness_gate_bool_schema(config: Config) -> PolicyBoolSchemaResult:
+    """Validate adapter-readiness-gate bool consumers without truthiness coercion."""
+
+    errors: list[str] = []
+    values: dict[str, bool] = dict(ADAPTER_READINESS_GATE_BOOL_DEFAULTS)
+
+    if "adapter_readiness_gate" not in config:
+        return PolicyBoolSchemaResult(ok=True, values=values, errors=[])
+
+    gate = config["adapter_readiness_gate"]
+    if not isinstance(gate, dict):
+        return PolicyBoolSchemaResult(
+            ok=False,
+            values=values,
+            errors=["config_contract_invalid: adapter_readiness_gate must be a mapping"],
+        )
+
+    for key in ADAPTER_READINESS_GATE_BOOL_DEFAULTS:
+        if key not in gate:
+            continue
+        value = gate[key]
+        if type(value) is not bool:
+            errors.append(
+                f"config_contract_invalid: adapter_readiness_gate.{key} must be literal bool; "
+                f"got {type(value).__name__}"
+            )
             continue
         values[key] = value
 
