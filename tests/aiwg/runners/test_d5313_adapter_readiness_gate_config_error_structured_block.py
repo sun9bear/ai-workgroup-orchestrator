@@ -265,6 +265,36 @@ def test_resume_preflight_preserves_config_error_from_blocked_latest_readiness_r
     assert any("adapter_binary_readiness.version_probe_enabled" in error for error in payload["errors"])
 
 
+def test_resume_preflight_preserves_blocked_report_error_after_current_config_is_fixed(tmp_path: Path) -> None:
+    config, db_path, _manifest_path, approval_id = create_approved_preflight(tmp_path)
+    make_current_readiness_config_malformed(config)
+    blocked_report = write_adapter_binary_readiness_report(
+        config=config,
+        project_root=tmp_path,
+        db_path=db_path,
+        run_version_probes=False,
+    )
+    assert blocked_report["status"] == "blocked"
+    assert blocked_report["error"] == "config_contract_invalid"
+    assert blocked_report["adapters"] == {}
+
+    config["adapter_binary_readiness"]["version_probe_enabled"] = False
+
+    result = resume_preflight(config=config, project_root=tmp_path, agent="OpenCode", message_id=MESSAGE_ID)
+
+    assert result.status == "adapter_readiness_blocked"
+    assert result.approval_id == approval_id
+    assert result.error == "config_contract_invalid"
+    assert db_rows(db_path, "SELECT COUNT(*) FROM agent_runs") == [(0,)]
+    assert db_rows(db_path, "SELECT used_at FROM operator_approvals WHERE id = ?", (approval_id,)) == [(None,)]
+    payload = latest_event_payload(db_path, MESSAGE_ID, "adapter_readiness_gate_blocked")
+    assert payload["reason"] == "config_contract_invalid"
+    assert payload["error"] == "config_contract_invalid"
+    assert payload["started_real_process"] is False
+    assert payload["started_adapter_process"] is False
+    assert any("adapter_binary_readiness.version_probe_enabled" in error for error in payload["errors"])
+
+
 def test_approve_real_start_records_standard_block_when_current_readiness_config_is_malformed(tmp_path: Path) -> None:
     config, db_path, approval_id, plan_path, report_path = prepare_plan_and_probe_chain(tmp_path)
     before_runs = db_rows(db_path, "SELECT COUNT(*) FROM agent_runs")
@@ -280,6 +310,47 @@ def test_approve_real_start_records_standard_block_when_current_readiness_config
         sandbox_report_path=report_path,
         ttl_minutes=60,
         reason="D5.3.13 malformed readiness config real-start guard",
+    )
+
+    assert result.status == "adapter_readiness_blocked"
+    assert result.approval_id == approval_id
+    assert result.error == "config_contract_invalid"
+    assert result.authorization_path is None
+    assert db_rows(db_path, "SELECT COUNT(*) FROM agent_runs") == before_runs
+    payload = latest_event_payload(db_path, MESSAGE_ID, "adapter_readiness_gate_blocked")
+    assert payload["reason"] == "config_contract_invalid"
+    assert payload["error"] == "config_contract_invalid"
+    assert payload["started_real_process"] is False
+    assert payload["started_adapter_process"] is False
+    assert any("adapter_binary_readiness.version_probe_enabled" in error for error in payload["errors"])
+
+
+def test_approve_real_start_preserves_blocked_report_error_after_current_config_is_fixed(tmp_path: Path) -> None:
+    config, db_path, approval_id, plan_path, report_path = prepare_plan_and_probe_chain(tmp_path)
+    before_runs = db_rows(db_path, "SELECT COUNT(*) FROM agent_runs")
+    make_current_readiness_config_malformed(config)
+    blocked_report = write_adapter_binary_readiness_report(
+        config=config,
+        project_root=tmp_path,
+        db_path=db_path,
+        run_version_probes=False,
+    )
+    assert blocked_report["status"] == "blocked"
+    assert blocked_report["error"] == "config_contract_invalid"
+    assert blocked_report["adapters"] == {}
+
+    config["adapter_binary_readiness"]["version_probe_enabled"] = False
+
+    result = approve_real_start(
+        config=config,
+        project_root=tmp_path,
+        agent="OpenCode",
+        message_id=MESSAGE_ID,
+        operator="alice",
+        sandbox_plan_path=plan_path,
+        sandbox_report_path=report_path,
+        ttl_minutes=60,
+        reason="D5.3.13 blocked readiness report real-start guard",
     )
 
     assert result.status == "adapter_readiness_blocked"

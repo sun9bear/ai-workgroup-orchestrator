@@ -23,6 +23,26 @@ class AdapterReadinessGateResult:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
+def _readiness_report_block(report: dict[str, Any]) -> dict[str, Any] | None:
+    status = str(report.get("status") or "")
+    error = str(report.get("error") or "")
+    if status != "blocked" and not error:
+        return None
+
+    reason = error or "adapter_readiness_report_blocked"
+    raw_errors = report.get("errors")
+    errors = [str(item) for item in raw_errors] if isinstance(raw_errors, list) else []
+    if not errors:
+        errors = [reason]
+
+    return {
+        "reason": reason,
+        "error": reason,
+        "errors": errors,
+        "report_status": status,
+    }
+
+
 def evaluate_adapter_readiness_gate(
     *,
     config: dict[str, Any],
@@ -168,6 +188,17 @@ def evaluate_adapter_readiness_gate(
                 "reason": "config_contract_invalid",
                 "error": "config_contract_invalid",
                 "errors": errors,
+            },
+            report_path=report_path,
+        )
+
+    report_block = _readiness_report_block(report)
+    if report_block is not None:
+        return _blocked(
+            report_block["reason"],
+            {
+                **payload_with_report,
+                **report_block,
             },
             report_path=report_path,
         )
