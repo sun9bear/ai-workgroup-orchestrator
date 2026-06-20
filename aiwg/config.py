@@ -36,6 +36,13 @@ ADAPTER_READINESS_GATE_BOOL_DEFAULTS = {
     "enabled": True,
 }
 
+ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT = (
+    "sandbox_plan",
+    "sandbox_probe",
+    "real",
+)
+ADAPTER_READINESS_GATE_ALLOWED_MODES = frozenset(ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT)
+
 
 @dataclass(frozen=True)
 class ConfigValidationResult:
@@ -49,6 +56,13 @@ class ConfigValidationResult:
 class PolicyBoolSchemaResult:
     ok: bool
     values: dict[str, bool] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AdapterReadinessGateRequiredModesSchemaResult:
+    ok: bool
+    values: dict[str, list[str]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
 
@@ -221,6 +235,11 @@ def validate_config_contract(config: Config) -> ConfigValidationResult:
     if gate_schema.ok:
         messages.append("adapter_readiness_gate bool schema ok")
 
+    gate_required_modes_schema = validate_adapter_readiness_gate_required_modes_schema(config)
+    errors.extend(gate_required_modes_schema.errors)
+    if gate_required_modes_schema.ok:
+        messages.append("adapter_readiness_gate required_modes schema ok")
+
     return ConfigValidationResult(ok=not errors, messages=messages, warnings=warnings, errors=errors)
 
 
@@ -354,6 +373,60 @@ def validate_adapter_readiness_gate_bool_schema(config: Config) -> PolicyBoolSch
         values[key] = value
 
     return PolicyBoolSchemaResult(ok=not errors, values=values, errors=errors)
+
+
+def validate_adapter_readiness_gate_required_modes_schema(
+    config: Config,
+) -> AdapterReadinessGateRequiredModesSchemaResult:
+    """Validate adapter-readiness-gate required_modes without truthiness/string coercion."""
+
+    errors: list[str] = []
+    values = {"required_modes": list(ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT)}
+
+    if "adapter_readiness_gate" not in config:
+        return AdapterReadinessGateRequiredModesSchemaResult(ok=True, values=values, errors=[])
+
+    gate = config["adapter_readiness_gate"]
+    if not isinstance(gate, dict):
+        return AdapterReadinessGateRequiredModesSchemaResult(
+            ok=False,
+            values=values,
+            errors=["config_contract_invalid: adapter_readiness_gate must be a mapping"],
+        )
+
+    if "required_modes" not in gate:
+        return AdapterReadinessGateRequiredModesSchemaResult(ok=True, values=values, errors=[])
+
+    raw_modes = gate["required_modes"]
+    if not isinstance(raw_modes, list) or not raw_modes:
+        return AdapterReadinessGateRequiredModesSchemaResult(
+            ok=False,
+            values=values,
+            errors=[
+                "config_contract_invalid: adapter_readiness_gate.required_modes must be a non-empty list"
+            ],
+        )
+
+    modes: list[str] = []
+    allowed_modes_display = list(ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT)
+    for index, raw_mode in enumerate(raw_modes):
+        path = f"adapter_readiness_gate.required_modes[{index}]"
+        if type(raw_mode) is not str:
+            errors.append(
+                f"config_contract_invalid: {path} must be a literal string; got {type(raw_mode).__name__}"
+            )
+            continue
+        if raw_mode not in ADAPTER_READINESS_GATE_ALLOWED_MODES:
+            errors.append(
+                f"config_contract_invalid: {path} must be one of {allowed_modes_display}; got {raw_mode!r}"
+            )
+            continue
+        modes.append(raw_mode)
+
+    if not errors:
+        values["required_modes"] = modes
+
+    return AdapterReadinessGateRequiredModesSchemaResult(ok=not errors, values=values, errors=errors)
 
 
 def dump_config(config: Config) -> str:
