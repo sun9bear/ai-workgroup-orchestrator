@@ -8,10 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from aiwg.adapter_binary_readiness import AdapterBinaryReadinessConfigError, resolve_adapter_binary_readiness
-from aiwg.config import validate_adapter_readiness_gate_bool_schema
+from aiwg.config import (
+    ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT,
+    validate_adapter_readiness_gate_bool_schema,
+    validate_adapter_readiness_gate_required_modes_schema,
+)
 from aiwg.state.database import connect_database, utc_now_iso
 
-DEFAULT_REQUIRED_MODES = ["sandbox_plan", "sandbox_probe", "real"]
+DEFAULT_REQUIRED_MODES = list(ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT)
 DEFAULT_MAX_AGE_MINUTES = 60
 REPORT_SCHEMA_INVALID_REASON = "adapter_readiness_report_schema_invalid"
 
@@ -113,13 +117,30 @@ def evaluate_adapter_readiness_gate(
             },
         )
 
+    required_modes_schema = validate_adapter_readiness_gate_required_modes_schema(config)
+    if not required_modes_schema.ok:
+        return _blocked(
+            "config_contract_invalid",
+            {
+                "phase": "B13-adapter-readiness-gate-binding",
+                "gate_enabled": None,
+                "execution_mode": execution_mode,
+                "agent": agent,
+                "adapter_type": adapter_type,
+                "manifest_adapter_type": str(manifest.get("adapter_type") or adapter_type or ""),
+                "reason": "config_contract_invalid",
+                "error": "config_contract_invalid",
+                "errors": required_modes_schema.errors,
+            },
+        )
+
     gate_config = _gate_config(config)
+    required_modes = required_modes_schema.values["required_modes"]
     if gate_schema.values["enabled"] is False:
         return AdapterReadinessGateResult(
             allowed=True,
             payload={"gate_enabled": False, "execution_mode": execution_mode},
         )
-    required_modes = _required_modes(gate_config)
     if execution_mode not in required_modes:
         return AdapterReadinessGateResult(
             allowed=True,
