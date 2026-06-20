@@ -8,14 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from aiwg.adapter_binary_readiness import AdapterBinaryReadinessConfigError, resolve_adapter_binary_readiness
-from aiwg.config import (
-    ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT,
-    validate_adapter_readiness_gate_bool_schema,
-    validate_adapter_readiness_gate_required_modes_schema,
-)
+from aiwg.config import validate_adapter_readiness_gate_bool_schema, validate_adapter_readiness_gate_required_modes_schema
 from aiwg.state.database import connect_database, utc_now_iso
 
-DEFAULT_REQUIRED_MODES = list(ADAPTER_READINESS_GATE_REQUIRED_MODES_DEFAULT)
 DEFAULT_MAX_AGE_MINUTES = 60
 REPORT_SCHEMA_INVALID_REASON = "adapter_readiness_report_schema_invalid"
 
@@ -399,14 +394,6 @@ def record_adapter_readiness_gate_event(
 def _gate_config(config: dict[str, Any]) -> dict[str, Any]:
     gate = config.get("adapter_readiness_gate") or {}
     return gate if isinstance(gate, dict) else {}
-
-
-def _required_modes(gate_config: dict[str, Any]) -> list[str]:
-    raw = gate_config.get("required_modes", DEFAULT_REQUIRED_MODES)
-    if not isinstance(raw, list):
-        return list(DEFAULT_REQUIRED_MODES)
-    modes = [str(item) for item in raw if str(item)]
-    return modes or list(DEFAULT_REQUIRED_MODES)
 
 
 def _max_age_minutes(gate_config: dict[str, Any]) -> int:
